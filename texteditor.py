@@ -1,0 +1,258 @@
+import tkinter as tk
+from tkinter import messagebox, filedialog
+import keyboard
+import threading
+import time
+import os
+import json
+import win32gui
+import win32con
+import win32com
+
+# 创建主窗口
+root = tk.Tk()
+root.title("快捷记事本")
+root.geometry("400x300")
+
+# 在创建主窗口后添加配置管理
+CONFIG_FILE = "texteditor_config.json"
+
+def load_config():
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        pass
+    return {"file_path": ""}
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f)
+
+# 在Text组件之前添加文件路径框
+path_frame = tk.Frame(root)
+path_frame.pack(pady=5, fill=tk.X, padx=10)
+
+path_label = tk.Label(path_frame, text="文件路径：")
+path_label.pack(side=tk.LEFT)
+
+path_entry = tk.Entry(path_frame)
+path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+def browse_file():
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".txt",
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")]
+    )
+    if file_path:
+        path_entry.delete(0, tk.END)
+        path_entry.insert(0, file_path)
+        save_config({"file_path": file_path})
+        load_file_content()
+
+browse_button = tk.Button(path_frame, text="浏览", command=browse_file)
+browse_button.pack(side=tk.LEFT, padx=5)
+
+# 添加最小化到系统托盘的功能
+def hide_window():
+    root.withdraw()
+
+def show_window():
+    # 获取窗口句柄
+    hwnd = win32gui.GetParent(root.winfo_id())
+    
+    # 如果窗口最小化，恢复它
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    
+    try:
+        # 将窗口移到前台
+        win32gui.BringWindowToTop(hwnd)
+        # 激活窗口
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shell.SendKeys('%')
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception as e:
+        print(f"激活窗口出错：{str(e)}")
+    
+    # 确保窗口可见和正常状态
+    root.deiconify()
+    root.state('normal')
+    root.lift()
+    root.focus_force()
+    root.update()
+
+# 创建一个标志来控制快捷键监听线程
+running = True
+
+# 快捷键监听函数
+def hotkey_listener():
+    while running:
+        if keyboard.is_pressed('shift+alt+e'):
+            root.after(0, show_window)  # 使用after方法在主线程中执行
+            time.sleep(0.3)  # 防止重复触发
+        time.sleep(0.1)  # 减少CPU使用率
+
+# 启动快捷键监听线程
+listener_thread = threading.Thread(target=hotkey_listener, daemon=True)
+listener_thread.start()
+
+# 创建标签
+label = tk.Label(root, text="现在发生了什么？")
+label.pack(pady=10)
+
+# Text组件
+text_box = tk.Text(root, width=40, height=10)
+text_box.pack(pady=5)
+
+# 文件内容同步功能
+def save_to_file(*args):
+    file_path = path_entry.get()
+    if file_path:
+        try:
+            content = text_box.get("1.0", tk.END)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            messagebox.showerror("保存错误", f"保存文件时出错：{str(e)}")
+
+def load_file_content():
+    file_path = path_entry.get()
+    if file_path and os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                text_box.delete("1.0", tk.END)
+                text_box.insert("1.0", content)
+        except Exception as e:
+            messagebox.showerror("读取错误", f"读取文件时出错：{str(e)}")
+
+# 加载配置
+config = load_config()
+if config["file_path"]:
+    path_entry.insert(0, config["file_path"])
+    load_file_content()
+
+# 绑定文本变化事件
+# TODO 没有监听到对应的事件
+text_box.bind('<<Modified>>', lambda e: save_to_file())
+path_entry.bind('<Return>', lambda e: load_file_content())
+
+# 按钮点击事件
+def show_message():
+    user_input = text_box.get("1.0", tk.END)
+    
+    # 创建自定义对话框
+    dialog = tk.Toplevel(root)
+    dialog.title("您输入的内容")
+    
+    # 获取屏幕尺寸
+    screen_height = root.winfo_screenheight()
+    screen_width = root.winfo_screenwidth()  # 添加获取屏幕宽度
+    max_height = int(screen_height * 0.8)
+    max_width = screen_width  # 最大宽度设为屏幕宽度
+    
+    # 创建Frame容器
+    frame = tk.Frame(dialog)
+    frame.pack(expand=True, fill='both', padx=10, pady=10)
+    
+    # 创建文本框和滚动条
+    display_text = tk.Text(frame, wrap=tk.WORD, width=60, height=20)
+    scrollbar = tk.Scrollbar(frame, command=display_text.yview)
+    display_text.configure(yscrollcommand=scrollbar.set)
+    
+    # 放置文本框和滚动条
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    display_text.pack(side=tk.LEFT, expand=True, fill='both')
+    
+    # 插入内容
+    display_text.insert("1.0", user_input)
+    # 设置为只读
+    display_text.configure(state='disabled')
+    
+    # 添加确��按钮
+    ok_button = tk.Button(dialog, text="确定", command=dialog.destroy)
+    ok_button.pack(pady=5)
+    
+    # 调整窗口大小和位置
+    dialog.update()
+    dialog_height = max_height# dialog.winfo_reqheight()# # min(, max_height)
+    dialog_width = max_width# dialog.info_reqwidth() # max_width # 使用屏幕宽度作为最大宽度
+    
+    # 计算居中位置
+    x = 0
+    y = 0
+    
+    # 设置窗口大小和位置
+    dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+    
+    # 设置模态
+    dialog.transient(root)
+    dialog.grab_set()
+    root.wait_window(dialog)
+
+# 退出函数
+def quit_app():
+    if messagebox.askokcancel("退出", "确定要完全退出程序吗？"):
+        save_to_file()  # 退出前保存
+        global running
+        running = False
+        root.destroy()
+
+# 创建按钮框来容纳两个按钮
+button_frame = tk.Frame(root)
+button_frame.pack(pady=10)
+
+# 修改原有按钮的父容器为button_frame
+button = tk.Button(button_frame, text="显示内容", command=show_message)
+button.pack(side=tk.LEFT, padx=5)
+
+# 添加退出按钮
+quit_button = tk.Button(button_frame, text="退出程序", command=quit_app, fg='red')
+quit_button.pack(side=tk.LEFT, padx=5)
+
+# 绑定窗口关闭事件为最小化
+root.protocol('WM_DELETE_WINDOW', hide_window)
+
+# 初始隐藏窗口
+# root.withdraw()
+
+# 在show_window函数后添加
+def bind_shortcuts():
+    # 绑定ESC键到hide_window函数
+    root.bind('<Escape>', lambda e: hide_window())
+    # 添加Ctrl+S保存快捷键
+    root.bind('<Control-s>', lambda e: save_to_file())
+    # 同时也为文本框绑定，确保在输入时也能响应快捷键
+    text_box.bind('<Control-s>', lambda e: save_to_file())
+
+# 在创建主窗口后调用绑定函数
+root.title("简单桌面记事本")
+root.geometry("400x300")
+bind_shortcuts()  # 添加这一行
+
+# 在path_frame中添加更新按钮
+update_button = tk.Button(path_frame, text="保存", command=save_to_file)  # 直接使用函数名
+update_button.pack(side=tk.LEFT, padx=5)
+
+# 在任意位置添加一个函数来创建 README.md
+def create_readme():
+    readme_content = """# 快捷记事本
+
+一个简单的桌面记事本程序，支持全局快捷键和自动保存功能。
+
+## 功能特点
+
+- 全局快捷键（Shift+Alt+E）快速唤醒窗口
+- 支持文件路径自定义和自动保存
+- 支持窗口最小化和快速恢复
+- 支持内容全屏查看
+
+## 开发环境配置
+
+1. Python 3.6 或更高版本
+2. 安装依赖：
+
+```
+pip install keyboard pywin
