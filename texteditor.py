@@ -135,8 +135,13 @@ if config["file_path"]:
     load_file_content()
 
 # 绑定文本变化事件
-# TODO 没有监听到对应的事件
-text_box.bind('<<Modified>>', lambda e: save_to_file())
+def on_text_change(event=None):
+    if text_box.edit_modified():
+        save_to_file()
+        text_box.edit_modified(False)
+    return "break"
+
+text_box.bind("<<Modified>>", on_text_change)
 path_entry.bind('<Return>', lambda e: load_file_content())
 
 # 按钮点击事件
@@ -149,9 +154,10 @@ def show_message():
     
     # 获取屏幕尺寸
     screen_height = root.winfo_screenheight()
-    screen_width = root.winfo_screenwidth()  # 添加获取屏幕宽度
-    max_height = int(screen_height * 0.8)
-    max_width = screen_width  # 最大宽度设为屏幕宽度
+    screen_width = root.winfo_screenwidth()
+    # 使用完整屏幕尺寸
+    max_height = screen_height
+    max_width = screen_width
     
     # 创建Frame容器
     frame = tk.Frame(dialog)
@@ -171,16 +177,15 @@ def show_message():
     # 设置为只读
     display_text.configure(state='disabled')
     
-    # 添加确��按钮
+    # 添加确定按钮
     ok_button = tk.Button(dialog, text="确定", command=dialog.destroy)
     ok_button.pack(pady=5)
     
-    # 调整窗口大小和位置
-    dialog.update()
-    dialog_height = max_height# dialog.winfo_reqheight()# # min(, max_height)
-    dialog_width = max_width# dialog.info_reqwidth() # max_width # 使用屏幕宽度作为最大宽度
+    # 设置为全屏大小
+    dialog_width = max_width
+    dialog_height = max_height
     
-    # 计算居中位置
+    # 位置设置为屏幕左上角
     x = 0
     y = 0
     
@@ -236,23 +241,5 @@ bind_shortcuts()  # 添加这一行
 update_button = tk.Button(path_frame, text="保存", command=save_to_file)  # 直接使用函数名
 update_button.pack(side=tk.LEFT, padx=5)
 
-# 在任意位置添加一个函数来创建 README.md
-def create_readme():
-    readme_content = """# 快捷记事本
-
-一个简单的桌面记事本程序，支持全局快捷键和自动保存功能。
-
-## 功能特点
-
-- 全局快捷键（Shift+Alt+E）快速唤醒窗口
-- 支持文件路径自定义和自动保存
-- 支持窗口最小化和快速恢复
-- 支持内容全屏查看
-
-## 开发环境配置
-
-1. Python 3.6 或更高版本
-2. 安装依赖：
-
-```
-pip install keyboard pywin
+# 启动主事件循环
+root.mainloop()
