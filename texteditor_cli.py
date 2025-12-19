@@ -11,12 +11,21 @@ import os
 import subprocess
 import sys
 from datetime import datetime
+from csv_parser import parse_csv, get_csv_info
+from job_manager import (
+    cmd_job_load, cmd_job_list, cmd_job_backup, 
+    cmd_job_search, cmd_job_edit, cmd_job_delete,
+    cmd_job_restore, cmd_job_list_deleted
+)
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 配置文件路径（与 texteditor.py 共享），使用脚本所在目录
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "texteditor_config.json")
+
+# 工作列表文件路径
+JOB_LIST_FILE = os.path.join(SCRIPT_DIR, "job_list.json")
 
 
 def load_config():
@@ -300,6 +309,91 @@ def launch_gui():
         return False
 
 
+def show_csv_info(csv_file_path):
+    """显示 CSV 文件的基本信息"""
+    if not csv_file_path:
+        print("错误：请提供 CSV 文件路径")
+        return False
+    
+    if not os.path.exists(csv_file_path):
+        print(f"错误：文件不存在：{csv_file_path}")
+        return False
+    
+    try:
+        info = get_csv_info(csv_file_path)
+        
+        print("=" * 60)
+        print("CSV 文件信息")
+        print("=" * 60)
+        print(f"文件路径：{info['file_path']}")
+        print(f"列数：{info['column_count']}")
+        print(f"行数：{info['row_count']}")
+        print(f"\n表头字段名：")
+        for i, header in enumerate(info['headers'], 1):
+            print(f"  {i}. {header}")
+        
+        if info['row_count'] > 0:
+            print(f"\n前3行数据预览：")
+            for i, row in enumerate(info['data'][:3], 1):
+                print(f"\n第{i}行：")
+                for header in info['headers']:
+                    value = row.get(header, '')
+                    # 如果值太长，截断显示
+                    if len(value) > 80:
+                        value = value[:77] + "..."
+                    print(f"  {header}: {value}")
+        
+        return True
+    except Exception as e:
+        print(f"解析 CSV 文件失败：{str(e)}")
+        return False
+
+
+# ============================================================================
+# Job 命令包装函数（实际实现在 job_manager.py 中）
+# ============================================================================
+
+def job_load(csv_file_path: str):
+    """从 CSV 文件加载数据到工作列表"""
+    return cmd_job_load(JOB_LIST_FILE, csv_file_path)
+
+
+def job_list(limit: int = None, include_deleted: bool = False):
+    """显示工作列表"""
+    return cmd_job_list(JOB_LIST_FILE, limit, include_deleted)
+
+
+def job_backup(backup_dir: str = None):
+    """备份工作列表文件"""
+    return cmd_job_backup(JOB_LIST_FILE, backup_dir)
+
+
+def job_search(keyword: str = None, title: str = None, tag: str = None, case_sensitive: bool = False, include_deleted: bool = False):
+    """搜索工作"""
+    return cmd_job_search(JOB_LIST_FILE, keyword, title, tag, case_sensitive, include_deleted)
+
+
+def job_delete(index: int = None, job_key: str = None):
+    """软删除工作"""
+    return cmd_job_delete(JOB_LIST_FILE, index, job_key)
+
+
+def job_restore(index: int = None, job_key: str = None):
+    """恢复已删除的工作"""
+    return cmd_job_restore(JOB_LIST_FILE, index, job_key)
+
+
+def job_list_deleted(limit: int = None):
+    """显示已删除的工作列表"""
+    return cmd_job_list_deleted(JOB_LIST_FILE, limit)
+
+
+def job_edit(index: int = None, job_key: str = None, field: str = None, value: str = None, 
+             add_tag: str = None, remove_tag: str = None, summary: str = None, summary_from_file: str = None):
+    """编辑工作信息"""
+    return cmd_job_edit(JOB_LIST_FILE, index, job_key, field, value, add_tag, remove_tag, summary, summary_from_file)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="文本编辑器命令行工具 - 快速添加带时间戳的随笔",
@@ -340,6 +434,36 @@ def main():
   
   # 启动 GUI 版本
   python texteditor_cli.py gui
+  
+  # 查看 CSV 文件基本信息
+  python texteditor_cli.py csv "data/分享的链接_20251219_readshare.csv"
+  
+  # 从 CSV 文件加载数据到工作列表
+  python texteditor_cli.py job load "data/分享的链接_20251219_readshare.csv"
+  
+  # 显示工作列表
+  python texteditor_cli.py job list
+  
+  # 显示工作列表（限制显示数量）
+  python texteditor_cli.py job list --limit 10
+  
+  # 编辑工作（通过索引）
+  python texteditor_cli.py job edit --index 0 --field "标题" --value "新标题"
+  python texteditor_cli.py job edit --index 0 --add-tag "重要"
+  python texteditor_cli.py job edit --index 0 --remove-tag "重要"
+  
+  # 编辑工作（通过链接）
+  python texteditor_cli.py job edit --key "https://..." --add-tag "目标工作"
+  
+  # 备份工作列表
+  python texteditor_cli.py job backup
+  python texteditor_cli.py job backup --dir "custom/backup/path"
+  
+  # 搜索工作（默认同时搜索标题和标签）
+  python texteditor_cli.py job search "量化"
+  python texteditor_cli.py job search --title "量化"
+  python texteditor_cli.py job search --tag "工作"
+  python texteditor_cli.py job search --title "开发" --tag "重要"
         """
     )
     
@@ -366,6 +490,62 @@ def main():
     # gui 命令：启动 GUI 版本
     gui_parser = subparsers.add_parser('gui', help='启动 GUI 版本的文本编辑器')
     
+    # csv 命令：查看 CSV 文件基本信息
+    csv_parser = subparsers.add_parser('csv', help='查看 CSV 文件的基本信息（表头、行数、列数等）')
+    csv_parser.add_argument('csv_file', help='CSV 文件路径')
+    
+    # job 命令：工作列表管理
+    job_parser = subparsers.add_parser('job', help='工作列表管理（从 CSV 文件加载数据，维护工作列表）')
+    job_subparsers = job_parser.add_subparsers(dest='job_command', help='job 子命令')
+    
+    # job load 命令：从 CSV 文件加载数据
+    job_load_parser = job_subparsers.add_parser('load', help='从 CSV 文件加载数据到工作列表（去重，只增不删）')
+    job_load_parser.add_argument('csv_file', help='CSV 文件路径')
+    
+    # job list 命令：显示工作列表
+    job_list_parser = job_subparsers.add_parser('list', help='显示工作列表')
+    job_list_parser.add_argument('--limit', type=int, default=None, help='限制显示的数量（默认：显示全部）')
+    job_list_parser.add_argument('--include-deleted', action='store_true', help='包含已删除的工作（默认：不包含）')
+    
+    # job edit 命令：编辑工作信息
+    job_edit_parser = job_subparsers.add_parser('edit', help='编辑工作信息（修改标题、添加/移除标签、设置摘要等）')
+    job_edit_parser.add_argument('--index', type=int, default=None, help='工作索引（从0开始，与 --key 二选一）')
+    job_edit_parser.add_argument('--key', type=str, default=None, help='工作唯一标识（链接，与 --index 二选一）')
+    job_edit_parser.add_argument('--field', type=str, default=None, help='要修改的字段名（如：标题、时间等）')
+    job_edit_parser.add_argument('--value', type=str, default=None, help='新值（与 --field 配合使用）')
+    job_edit_parser.add_argument('--add-tag', type=str, default=None, help='添加标签')
+    job_edit_parser.add_argument('--remove-tag', type=str, default=None, help='移除标签')
+    job_edit_parser.add_argument('--summary', type=str, default=None, help='设置摘要内容（支持多行，使用\\n表示换行，或使用--summary-from-file从文件读取。注意：包含空格的值需要用引号包裹）')
+    job_edit_parser.add_argument('--summary-from-file', type=str, default=None, help='从文件读取摘要内容（支持多行）')
+    
+    # job backup 命令：备份工作列表
+    job_backup_parser = job_subparsers.add_parser('backup', help='备份工作列表文件到 job-manager-data 目录')
+    job_backup_parser.add_argument('--dir', type=str, default=None, help='备份目录路径（默认：job-manager-data）')
+    
+    # job search 命令：搜索工作
+    job_search_parser = job_subparsers.add_parser('search', help='搜索工作（默认同时搜索标题和标签）')
+    # 位置参数：直接提供关键词
+    job_search_parser.add_argument('keyword', type=str, nargs='?', default=None, help='搜索关键词（位置参数，默认同时搜索标题和标签）')
+    # 选项参数：用于精确控制
+    job_search_parser.add_argument('--title', type=str, default=None, help='标题关键词（部分匹配）')
+    job_search_parser.add_argument('--tag', type=str, default=None, help='标签关键词（部分匹配）')
+    job_search_parser.add_argument('--case-sensitive', action='store_true', help='区分大小写（默认：不区分）')
+    job_search_parser.add_argument('--include-deleted', action='store_true', help='包含已删除的工作（默认：不包含）')
+    
+    # job delete 命令：软删除工作
+    job_delete_parser = job_subparsers.add_parser('delete', help='软删除工作（标记为已删除，可恢复）')
+    job_delete_parser.add_argument('--index', type=int, default=None, help='工作索引（从0开始，与 --key 二选一）')
+    job_delete_parser.add_argument('--key', type=str, default=None, help='工作唯一标识（链接，与 --index 二选一）')
+    
+    # job restore 命令：恢复已删除的工作
+    job_restore_parser = job_subparsers.add_parser('restore', help='恢复已删除的工作')
+    job_restore_parser.add_argument('--index', type=int, default=None, help='工作索引（基于已删除列表，与 --key 二选一）')
+    job_restore_parser.add_argument('--key', type=str, default=None, help='工作唯一标识（链接，与 --index 二选一）')
+    
+    # job list-deleted 命令：显示已删除的工作列表
+    job_list_deleted_parser = job_subparsers.add_parser('list-deleted', help='显示已删除的工作列表')
+    job_list_deleted_parser.add_argument('--limit', type=int, default=None, help='限制显示的数量（默认：显示全部）')
+    
     args = parser.parse_args()
     
     if args.command == 'add':
@@ -387,6 +567,46 @@ def main():
     elif args.command == 'gui':
         # 启动 GUI 版本
         launch_gui()
+    elif args.command == 'csv':
+        # 查看 CSV 文件信息
+        show_csv_info(args.csv_file)
+    elif args.command == 'job':
+        # 工作列表管理
+        if args.job_command == 'load':
+            job_load(args.csv_file)
+        elif args.job_command == 'list':
+            job_list(args.limit, getattr(args, 'include_deleted', False))
+        elif args.job_command == 'edit':
+            job_edit(
+                index=args.index,
+                job_key=args.key,
+                field=args.field,
+                value=args.value,
+                add_tag=args.add_tag,
+                remove_tag=args.remove_tag,
+                summary=args.summary,
+                summary_from_file=args.summary_from_file
+            )
+        elif args.job_command == 'backup':
+            job_backup(args.dir)
+        elif args.job_command == 'search':
+            # 位置参数 keyword 优先，如果没有位置参数则使用选项参数
+            search_keyword = args.keyword if args.keyword else None
+            job_search(
+                keyword=search_keyword,
+                title=args.title,
+                tag=args.tag,
+                case_sensitive=args.case_sensitive,
+                include_deleted=getattr(args, 'include_deleted', False)
+            )
+        elif args.job_command == 'delete':
+            job_delete(index=args.index, job_key=args.key)
+        elif args.job_command == 'restore':
+            job_restore(index=args.index, job_key=args.key)
+        elif args.job_command == 'list-deleted':
+            job_list_deleted(args.limit)
+        else:
+            job_parser.print_help()
     else:
         parser.print_help()
 

@@ -125,8 +125,42 @@ def load_file_content():
                 content = f.read()
                 text_box.delete("1.0", tk.END)
                 text_box.insert("1.0", content)
+                text_box.edit_modified(False)  # 重置修改标志
         except Exception as e:
             messagebox.showerror("读取错误", f"读取文件时出错：{str(e)}")
+
+# 刷新功能：从硬盘重新载入文件
+def refresh_file():
+    file_path = path_entry.get()
+    if not file_path:
+        messagebox.showwarning("刷新", "请先选择文件路径")
+        return
+    
+    if not os.path.exists(file_path):
+        messagebox.showerror("刷新错误", f"文件不存在：{file_path}")
+        return
+    
+    # 检查是否有未保存的更改
+    if text_box.edit_modified():
+        result = messagebox.askyesnocancel(
+            "未保存的更改",
+            "当前内容有未保存的更改，刷新将丢失这些更改。\n是否先保存？"
+        )
+        if result is None:  # 取消
+            return
+        elif result:  # 是，先保存
+            save_to_file()
+    
+    # 从硬盘重新载入文件
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            text_box.delete("1.0", tk.END)
+            text_box.insert("1.0", content)
+            text_box.edit_modified(False)  # 重置修改标志
+            # 不显示成功提示，静默刷新
+    except Exception as e:
+        messagebox.showerror("刷新错误", f"读取文件时出错：{str(e)}")
 
 # 加载配置
 config = load_config()
@@ -231,15 +265,24 @@ def bind_shortcuts():
     root.bind('<Control-s>', lambda e: save_to_file())
     # 同时也为文本框绑定，确保在输入时也能响应快捷键
     text_box.bind('<Control-s>', lambda e: save_to_file())
+    # 添加Ctrl+R刷新快捷键（只在文本框绑定，避免重复触发）
+    def refresh_handler(e):
+        refresh_file()
+        return "break"  # 阻止事件继续传播
+    text_box.bind('<Control-r>', refresh_handler)
+    root.bind('<Control-r>', refresh_handler)
 
 # 在创建主窗口后调用绑定函数
 root.title("简单桌面记事本")
 root.geometry("400x300")
 bind_shortcuts()  # 添加这一行
 
-# 在path_frame中添加更新按钮
+# 在path_frame中添加保存和刷新按钮
 update_button = tk.Button(path_frame, text="保存", command=save_to_file)  # 直接使用函数名
 update_button.pack(side=tk.LEFT, padx=5)
+
+refresh_button = tk.Button(path_frame, text="刷新", command=refresh_file)
+refresh_button.pack(side=tk.LEFT, padx=5)
 
 # 启动主事件循环
 root.mainloop()
