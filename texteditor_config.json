@@ -1,3 +1,6 @@
 {
-  "file_path": "C:\\projects\\my-blogs\\202512\\日志.txt"
+  "file_path": "C:\\projects\\my-blogs\\202601卷\\日志.txt",
+  "tail": {
+    "n": 32
+  }
 }

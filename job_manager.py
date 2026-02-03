@@ -176,24 +176,35 @@ class JobManager:
     
     def list_jobs(self, limit: int = None, include_deleted: bool = False) -> List[Dict]:
         """
-        获取工作列表
+        获取工作列表（按ID排序）
         
         Args:
             limit: 限制返回的数量（None 表示返回全部）
             include_deleted: 是否包含已删除的工作（默认：False）
         
         Returns:
-            List[Dict]: 工作列表
+            List[Dict]: 工作列表（按ID排序）
         """
         # 过滤已删除的工作
         if include_deleted:
-            jobs = self.jobs
+            jobs = self.jobs.copy()
         else:
             jobs = [job for job in self.jobs if not job.get('已删除', False)]
         
+        # 按ID排序（如果有ID字段）
+        # 如果有些工作没有ID，将它们排在最后
+        jobs_with_id = [job for job in jobs if 'id' in job and job.get('id') is not None]
+        jobs_without_id = [job for job in jobs if 'id' not in job or job.get('id') is None]
+        
+        # 按ID排序
+        jobs_with_id.sort(key=lambda x: x.get('id', 999999))
+        
+        # 合并列表（有ID的在前，没有ID的在后）
+        sorted_jobs = jobs_with_id + jobs_without_id
+        
         if limit is None:
-            return jobs
-        return jobs[:limit]
+            return sorted_jobs
+        return sorted_jobs[:limit]
     
     def get_stats(self) -> Dict:
         """
@@ -242,19 +253,77 @@ class JobManager:
     
     def find_job_by_index(self, index: int, include_deleted: bool = False) -> Dict:
         """
-        根据索引查找工作（基于未删除的列表）
+        根据索引或ID查找工作（优先使用ID字段）
         
         Args:
-            index: 工作索引（从0开始，基于未删除的列表）
+            index: 工作索引或ID（从0开始）
             include_deleted: 是否包含已删除的工作（默认：False）
         
         Returns:
             Dict: 找到的工作字典，如果索引无效返回 None
         """
+        # 首先尝试通过ID查找
+        job_with_id = self.find_job_by_id(index, include_deleted=include_deleted)
+        if job_with_id:
+            return job_with_id
+        
+        # 如果没有找到，使用列表索引
         jobs = self.list_jobs(include_deleted=include_deleted)
         if 0 <= index < len(jobs):
             return jobs[index]
         return None
+    
+    def find_job_by_id(self, job_id: int, include_deleted: bool = False) -> Dict:
+        """
+        根据ID查找工作
+        
+        Args:
+            job_id: 工作ID
+            include_deleted: 是否包含已删除的工作（默认：False）
+        
+        Returns:
+            Dict: 找到的工作字典，如果未找到返回 None
+        """
+        for job in self.jobs:
+            if job.get('id') == job_id:
+                if include_deleted or not job.get('已删除', False):
+                    return job
+        return None
+    
+    def reset_ids(self) -> Dict:
+        """
+        重置所有工作的ID字段，从0开始重新编号（只处理未删除的工作）
+        
+        Returns:
+            Dict: 重置结果 {'success': bool, 'message': str, 'count': int}
+        """
+        try:
+            # 只处理未删除的工作
+            active_jobs = [job for job in self.jobs if not job.get('已删除', False)]
+            
+            # 给每个工作分配ID，从0开始
+            for index, job in enumerate(active_jobs):
+                job['id'] = index
+            
+            # 保存
+            if self._save_job_list():
+                return {
+                    'success': True,
+                    'message': f"成功重置 {len(active_jobs)} 条工作的ID",
+                    'count': len(active_jobs)
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': "重置ID完成但保存失败",
+                    'count': len(active_jobs)
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"重置ID失败：{str(e)}",
+                'count': 0
+            }
     
     def update_job(self, job_key: str, updates: Dict) -> Dict:
         """
@@ -709,6 +778,59 @@ class JobManager:
                 'job': None
             }
     
+    def reset_ids(self) -> Dict:
+        """
+        重置所有工作的ID字段，从0开始重新编号
+        
+        Returns:
+            Dict: 重置结果 {'success': bool, 'message': str, 'count': int}
+        """
+        try:
+            # 只处理未删除的工作
+            active_jobs = [job for job in self.jobs if not job.get('已删除', False)]
+            
+            # 按时间排序（如果有时间字段），保持原有顺序
+            # 给每个工作分配ID
+            for index, job in enumerate(active_jobs):
+                job['id'] = index
+            
+            # 保存
+            if self._save_job_list():
+                return {
+                    'success': True,
+                    'message': f"成功重置 {len(active_jobs)} 条工作的ID",
+                    'count': len(active_jobs)
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': "重置ID完成但保存失败",
+                    'count': len(active_jobs)
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"重置ID失败：{str(e)}",
+                'count': 0
+            }
+    
+    def find_job_by_id(self, job_id: int, include_deleted: bool = False) -> Dict:
+        """
+        根据ID查找工作
+        
+        Args:
+            job_id: 工作ID
+            include_deleted: 是否包含已删除的工作（默认：False）
+        
+        Returns:
+            Dict: 找到的工作字典，如果未找到返回 None
+        """
+        for job in self.jobs:
+            if job.get('id') == job_id:
+                if include_deleted or not job.get('已删除', False):
+                    return job
+        return None
+    
     def backup(self, backup_dir: str = None) -> Dict:
         """
         备份工作列表文件
@@ -864,8 +986,16 @@ def cmd_job_list(job_list_file: str, limit: int = None, include_deleted: bool = 
     print(f"\n工作列表（显示 {len(display_jobs)} 条）：")
     print("-" * 60)
     
-    for i, job in enumerate(display_jobs, 0):
-        print(f"\n[{i}] {job.get('标题', '无标题')}")
+    for job in display_jobs:
+        # 使用ID字段（如果存在），否则使用在列表中的位置
+        job_id = job.get('id')
+        if job_id is not None:
+            display_id = job_id
+        else:
+            # 如果没有ID，使用在列表中的位置（从0开始）
+            display_id = display_jobs.index(job)
+        
+        print(f"\n[{display_id}] {job.get('标题', '无标题')}")
         if job.get('链接'):
             link = job['链接']
             print(f"    链接：{link}")
@@ -964,8 +1094,16 @@ def cmd_job_search(job_list_file: str, keyword: str = None, title: str = None, t
         return True
     
     # 显示搜索结果
-    for i, job in enumerate(results, 1):
-        print(f"\n[{i}] {job.get('标题', '无标题')}")
+    for job in results:
+        # 使用ID字段（如果存在）
+        job_id = job.get('id')
+        if job_id is not None:
+            display_id = job_id
+        else:
+            # 如果没有ID，使用在结果列表中的位置
+            display_id = results.index(job)
+        
+        print(f"\n[{display_id}] {job.get('标题', '无标题')}")
         if job.get('链接'):
             link = job['链接']
             print(f"    链接：{link}")
@@ -1201,8 +1339,16 @@ def cmd_job_list_deleted(job_list_file: str, limit: int = None) -> bool:
     print(f"\n已删除的工作列表（显示 {len(display_jobs)} 条）：")
     print("-" * 60)
     
-    for i, job in enumerate(display_jobs, 1):
-        print(f"\n[{i}] {job.get('标题', '无标题')} [已删除]")
+    for job in display_jobs:
+        # 使用ID字段（如果存在）
+        job_id = job.get('id')
+        if job_id is not None:
+            display_id = job_id
+        else:
+            # 如果没有ID，使用在列表中的位置
+            display_id = display_jobs.index(job)
+        
+        print(f"\n[{display_id}] {job.get('标题', '无标题')} [已删除]")
         if job.get('链接'):
             link = job['链接']
             print(f"    链接：{link}")
@@ -1226,4 +1372,23 @@ def cmd_job_list_deleted(job_list_file: str, limit: int = None) -> bool:
     
     print(f"\n提示：使用 'job restore --index <索引>' 可以恢复工作")
     return True
+
+
+def cmd_job_reset_id(job_list_file: str) -> bool:
+    """重置所有工作的ID字段（CLI命令）"""
+    manager = JobManager(job_list_file)
+    result = manager.reset_ids()
+    
+    print("=" * 60)
+    print("重置工作ID")
+    print("=" * 60)
+    
+    if result['success']:
+        print(f"[OK] {result['message']}")
+        print(f"  重置了 {result['count']} 条工作的ID（从0开始）")
+        print(f"\n提示：现在可以使用 'job list' 查看工作列表，序号将使用固定的ID")
+        return True
+    else:
+        print(f"[ERROR] {result['message']}")
+        return False
 
