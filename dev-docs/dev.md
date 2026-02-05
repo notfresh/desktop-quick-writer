@@ -21,6 +21,12 @@ pip install pyinstaller
 
 2. 执行打包命令：
 
+2.1 关闭正在运行的 texteditor.exe（如果有）
+2.2 然后重新运行编译命令：
+pyinstaller -y texteditor.spec
+
+
+完整的命令是
 ```bash
 pyinstaller --hidden-import keyboard --hidden-import win32gui --hidden-import win32con --hidden-import win32com --uac-admin -w texteditor.py
 ```
