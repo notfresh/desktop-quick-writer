@@ -7,6 +7,8 @@
 
 import json
 import os
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
@@ -928,6 +930,14 @@ def cmd_schedule_list(schedule_file: str, limit: int = None, status: str = None,
                     print(f"        {line}")
             else:
                 print(f"    意义/价值：{value}")
+        if schedule.get('进度详情'):
+            progress_detail = schedule.get('进度详情')
+            if '\n' in progress_detail:
+                print(f"    进度详情：")
+                for line in progress_detail.split('\n'):
+                    print(f"        {line}")
+            else:
+                print(f"    进度详情：{progress_detail}")
         print(f"    创建时间：{schedule.get('创建时间', '未知')}")
     
     return True
@@ -1028,6 +1038,63 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
     
     manager = ScheduleManager(schedule_file)
     now = datetime.now()
+
+    def _forward_progress_to_tt_add(content: str) -> Dict:
+        """将进度详情转发到 tt add 等效逻辑（直接调用本地 CLI add）。"""
+        workspace_dir = os.path.dirname(os.path.abspath(__file__))
+
+        try:
+            cli_path = os.path.join(workspace_dir, "texteditor_cli.py")
+            subprocess.run(
+                [sys.executable, cli_path, "add", content],
+                check=True,
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            return {
+                'success': True,
+                'message': "已同步到底层 add（等效 tt add）"
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"转发失败：{str(e)}"
+            }
+
+    def _append_progress_detail(schedule_obj: Dict, progress_text: str) -> Dict:
+        """为排期追加进度详情（自动带时间戳）。"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        detail_entry = f"[{timestamp}] {progress_text}"
+
+        current_detail = schedule_obj.get('进度详情', '')
+        if current_detail is None:
+            current_detail = ''
+        elif not isinstance(current_detail, str):
+            current_detail = str(current_detail)
+
+        if current_detail:
+            schedule_obj['进度详情'] = f"{current_detail}\n{detail_entry}"
+        else:
+            schedule_obj['进度详情'] = detail_entry
+
+        if not manager._save_schedules():
+            return {
+                'success': False,
+                'message': "进度详情已更新但保存失败"
+            }
+
+        forward_result = _forward_progress_to_tt_add(detail_entry)
+        if forward_result['success']:
+            return {
+                'success': True,
+                'message': f"已追加进度详情；{forward_result['message']}"
+            }
+
+        return {
+            'success': True,
+            'message': f"已追加进度详情；但{forward_result['message']}"
+        }
     
     print("=" * 60)
     print("排期管理")
@@ -1049,6 +1116,7 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
             status = schedule.get('完成情况', '未完成')
             description = schedule.get('描述', '')
             value = schedule.get('意义', '')
+            progress_detail = schedule.get('进度详情', '')
             print(f"[{schedule_id}] {task}")
             print(f"    时间段：{start_time} ~ {end_time}")
             print(f"    状态：{status}")
@@ -1134,6 +1202,7 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
             status = schedule.get('完成情况', '未完成')
             description = schedule.get('描述', '')
             value = schedule.get('意义', '')
+            progress_detail = schedule.get('进度详情', '')
             
             print(f"\n[{schedule_id}] {task}")
             print(f"    时间段：{start_time} ~ {end_time}")
@@ -1152,6 +1221,13 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
                         print(f"        {line}")
                 else:
                     print(f"    意义/价值：{value}")
+            if progress_detail:
+                if '\n' in progress_detail:
+                    print(f"    进度详情：")
+                    for line in progress_detail.split('\n'):
+                        print(f"        {line}")
+                else:
+                    print(f"    进度详情：{progress_detail}")
             
             # 询问执行情况
             print("\n请选择操作：")
@@ -1161,11 +1237,12 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
             print("  [4] 需要搁置（更新为搁置）")
             print("  [5] 更新描述")
             print("  [6] 补充意义/价值")
+            print("  [7] 追加进度详情")
             print("  [0] 跳过")
             
             while True:
                 try:
-                    choice = input("\n请选择（0-6，默认：0）：").strip()
+                    choice = input("\n请选择（0-7，默认：0）：").strip()
                     if not choice:
                         choice = '0'
                     
@@ -1237,8 +1314,20 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
                         manager.update_schedule(schedule_id=schedule_id, value=new_value)
                         print("[OK] 已更新意义/价值")
                         break
+                    elif choice == '7':
+                        progress_text = input("请输入进度详情（支持\\n换行，留空则取消）：").strip()
+                        if not progress_text:
+                            print("[INFO] 已取消追加进度详情")
+                            break
+                        progress_text = progress_text.replace('\\n', '\n')
+                        result = _append_progress_detail(schedule, progress_text)
+                        if result['success']:
+                            print(f"[OK] {result['message']}")
+                        else:
+                            print(f"[ERROR] {result['message']}")
+                        break
                     else:
-                        print("无效的选择，请输入 0-6")
+                        print("无效的选择，请输入 0-7")
                 except KeyboardInterrupt:
                     print("\n已取消")
                     break
@@ -1260,6 +1349,7 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
             status = schedule.get('完成情况', '未完成')
             description = schedule.get('描述', '')
             value = schedule.get('意义', '')
+            progress_detail = schedule.get('进度详情', '')
             
             print(f"\n[{schedule_id}] {task}")
             print(f"    时间段：{start_time} ~ {end_time}（已过期）")
@@ -1278,6 +1368,13 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
                         print(f"        {line}")
                 else:
                     print(f"    意义/价值：{value}")
+            if progress_detail:
+                if '\n' in progress_detail:
+                    print(f"    进度详情：")
+                    for line in progress_detail.split('\n'):
+                        print(f"        {line}")
+                else:
+                    print(f"    进度详情：{progress_detail}")
             
             # 询问是否需要更新状态
             print("\n请选择操作：")
@@ -1287,11 +1384,12 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
             print("  [4] 需要搁置（更新为搁置）")
             print("  [5] 更新描述")
             print("  [6] 补充意义/价值")
+            print("  [7] 追加进度详情")
             print("  [0] 跳过")
             
             while True:
                 try:
-                    choice = input("\n请选择（0-6，默认：0）：").strip()
+                    choice = input("\n请选择（0-7，默认：0）：").strip()
                     if not choice:
                         choice = '0'
                     
@@ -1367,8 +1465,20 @@ def cmd_schedule_gen(schedule_file: str) -> bool:
                         manager.update_schedule(schedule_id=schedule_id, value=new_value)
                         print("[OK] 已更新意义/价值")
                         break
+                    elif choice == '7':
+                        progress_text = input("请输入进度详情（支持\\n换行，留空则取消）：").strip()
+                        if not progress_text:
+                            print("[INFO] 已取消追加进度详情")
+                            break
+                        progress_text = progress_text.replace('\\n', '\n')
+                        result = _append_progress_detail(schedule, progress_text)
+                        if result['success']:
+                            print(f"[OK] {result['message']}")
+                        else:
+                            print(f"[ERROR] {result['message']}")
+                        break
                     else:
-                        print("无效的选择，请输入 0-6")
+                        print("无效的选择，请输入 0-7")
                 except KeyboardInterrupt:
                     print("\n已取消")
                     break
@@ -1727,6 +1837,14 @@ def cmd_schedule_search(schedule_file: str, keyword: str = None, task: str = Non
                     print(f"        {line}")
             else:
                 print(f"    意义/价值：{value}")
+        if schedule.get('进度详情'):
+            progress_detail = schedule.get('进度详情')
+            if '\n' in progress_detail:
+                print(f"    进度详情：")
+                for line in progress_detail.split('\n'):
+                    print(f"        {line}")
+            else:
+                print(f"    进度详情：{progress_detail}")
     
     return True
 
@@ -1793,6 +1911,15 @@ def cmd_schedule_history(schedule_file: str, days: int = 7) -> bool:
                     print(f"        {line}")
             else:
                 print(f"    意义/价值：{value}")
+
+        progress_detail = schedule.get('进度详情', '')
+        if progress_detail:
+            if '\n' in progress_detail:
+                print(f"    进度详情：")
+                for line in progress_detail.split('\n'):
+                    print(f"        {line}")
+            else:
+                print(f"    进度详情：{progress_detail}")
     
     return True
 
