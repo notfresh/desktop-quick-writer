@@ -772,7 +772,7 @@ def main():
     ss_add_parser.add_argument('--value', type=str, default='', help='意义/价值（可选，用于激励自己）')
     
     # ss list 命令：显示排期列表
-    ss_list_parser = ss_subparsers.add_parser('list', help='显示排期列表')
+    ss_list_parser = ss_subparsers.add_parser('list', aliases=['ls'], help='显示排期列表')
     ss_list_parser.add_argument('--limit', type=int, default=None, help='限制显示的数量（默认：显示全部）')
     ss_list_parser.add_argument('--status', type=str, choices=['已完成', '进行中', '未完成', '搁置', '延期'],
                                help='按状态筛选')
@@ -931,7 +931,7 @@ def main():
         elif args.ss_command == 'add':
             schedule_add(args.start_time, args.end_time, args.task, args.status, 
                         getattr(args, 'description', ''), getattr(args, 'value', ''))
-        elif args.ss_command == 'list':
+        elif args.ss_command == 'list' or args.ss_command == 'ls':
             schedule_list(args.limit, getattr(args, 'status', None),
                          getattr(args, 'start_date', None), getattr(args, 'end_date', None))
         elif args.ss_command == 'edit':
